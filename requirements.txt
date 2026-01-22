@@ -1,0 +1,81 @@
+# Core Data Science Libraries
+pandas==2.0.3
+numpy==1.24.3
+openpyxl==3.1.2  # For Excel file reading
+
+# Machine Learning
+scikit-learn==1.3.0
+category-encoders==2.6.1
+imbalanced-learn==0.11.0  # For SMOTE and other sampling techniques
+
+# Visualization
+matplotlib==3.7.2
+seaborn==0.12.2
+wordcloud==1.9.2
+
+# Model Interpretability
+shap==0.42.1
+
+# API Framework
+fastapi==0.103.1
+uvicorn[standard]==0.23.2
+gunicorn==21.2.0
+pydantic==2.3.0
+pydantic-settings==2.0.3
+python-multipart==0.0.6
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# Configuration Management
+PyYAML==6.0.1
+python-dotenv==1.0.0
+
+# Model Persistence
+joblib==1.3.2
+pickle5==0.0.12
+
+# Testing
+pytest==7.4.2
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1
+httpx==0.24.1  # For FastAPI testing
+
+# Code Quality
+black==23.9.1
+flake8==6.1.0
+mypy==1.5.1
+pylint==2.17.5
+isort==5.12.0
+
+# Monitoring & Logging
+prometheus-client==0.17.1
+python-json-logger==2.0.7
+
+# Data Validation
+great-expectations==0.17.23
+pandas-schema==0.3.6
+
+# Utilities
+tqdm==4.66.1
+click==8.1.7
+colorama==0.4.6
+
+# Development Tools
+jupyter==1.0.0
+ipykernel==6.25.2
+notebook==7.0.3
+
+# Optional: Database support (if needed)
+# sqlalchemy==2.0.21
+# psycopg2-binary==2.9.7
+
+# Optional: AWS/Cloud deployment
+# boto3==1.28.57
+# google-cloud-storage==2.10.0
+
+# Pinned for reproducibility
+certifi==2023.7.22
+charset-normalizer==3.2.0
