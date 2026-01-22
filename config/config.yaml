@@ -1,0 +1,292 @@
+# School Shooting Incident Analysis - Configuration File
+# Production-ready configuration management
+
+data:
+  # Input data files
+  input_excel: "data/raw/Public v3.1 K-12 School Shooting Database (9 25 2023).xlsx"
+  output_csv: "data/processed/K-12_School_Cleandata.csv"
+
+  # Excel sheet names
+  sheets:
+    incident: "Incident"
+    shooter: "Shooter"
+    victim: "Victim"
+    weapon: "Weapon"
+
+  # Data validation
+  required_sheets:
+    - "Incident"
+    - "Shooter"
+    - "Victim"
+    - "Weapon"
+
+preprocessing:
+  # Missing value imputation
+  default_categorical_fill: "Unknown"
+  duration_imputation_method: "median"  # median, mean, or value
+
+  # Encoding thresholds
+  high_cardinality_threshold: 3  # Use CountEncoder if unique values > threshold
+
+  # Feature engineering
+  target_column: "Has_Victims"
+
+  # Columns to drop
+  drop_columns:
+    - "Accomplice_Narrative"
+    - "Number_News"
+    - "No_of_Victims"
+    - "Source"
+    - "Location_Type"
+    - "Summary"
+    - "Narrative"
+    - "Summary_Length"
+    - "Narrative_Length"
+    - "Unnamed: 0"
+    - "Incident_ID"
+    - "Date"
+    - "Victims_Killed"
+    - "Victims_Wounded"
+    - "Number_Victims"
+
+features:
+  # Best performing feature set (SVM Polynomial - 86% accuracy)
+  selected_features:
+    - "Shooter_Outcome"
+    - "Shooter_Injury"
+    - "Situation"
+    - "Victim_School_Affiliation"
+    - "Victim_Gender"
+    - "Victim_Race"
+    - "Shooter_Died"
+    - "Shooter_Gender"
+    - "Shooter_Race"
+    - "School_Level"
+    - "Weapon_Type"
+    - "Targets"
+    - "Victim_Injury"
+    - "City"
+    - "Media_Attention"
+    - "Day"
+    - "Year"
+    - "Shooter_Killed"
+    - "Reliability"
+    - "Duration_min"
+    - "LAT"
+    - "LNG"
+
+model:
+  # Train-test split configuration
+  test_size: 0.25
+  random_state: 42
+  stratify: true
+
+  # Cross-validation settings
+  cv_folds: 5
+  cv_shuffle: true
+  cv_scoring: "roc_auc"
+
+  # Best model configuration (SVM Polynomial)
+  best_model:
+    type: "SVC"
+    kernel: "poly"
+    C: 3
+    tol: 0.001
+    probability: true
+    class_weight: "balanced"
+    random_state: 42
+
+  # Alternative models for comparison
+  logistic_regression:
+    solver: "saga"
+    max_iter: 1000
+    C: 3.0
+    tol: 0.0001
+    class_weight: "balanced"
+    random_state: 42
+
+  svm_linear:
+    kernel: "linear"
+    C: 3
+    tol: 0.01
+    probability: true
+    class_weight: "balanced"
+    random_state: 42
+
+  # Hyperparameter tuning grid
+  hyperparameter_tuning:
+    enabled: true
+    method: "GridSearchCV"  # GridSearchCV or RandomizedSearchCV
+    n_jobs: -1
+    verbose: 2
+
+    svm_param_grid:
+      C: [0.1, 1, 3, 10, 100]
+      kernel: ["linear", "poly", "rbf"]
+      degree: [2, 3, 4]  # for poly kernel
+      gamma: ["scale", "auto"]
+      tol: [0.001, 0.0001]
+
+    logistic_param_grid:
+      C: [0.1, 1, 3.0, 10, 100]
+      solver: ["saga", "lbfgs"]
+      max_iter: [1000, 2000]
+      tol: [0.0001, 0.00001]
+
+feature_selection:
+  # Feature selection methods
+  methods:
+    chi2:
+      enabled: true
+      k: "all"
+
+    rfe:
+      enabled: true
+      estimator: "RandomForestClassifier"
+      n_features_to_select: 15
+
+    rfecv:
+      enabled: true
+      estimator: "RandomForestClassifier"
+      step: 1
+      cv: 5
+      scoring: "roc_auc"
+
+evaluation:
+  # Metrics to compute
+  metrics:
+    - "accuracy"
+    - "precision"
+    - "recall"
+    - "f1"
+    - "roc_auc"
+
+  # Visualization settings
+  save_plots: true
+  plot_format: "png"
+  dpi: 300
+
+  # Permutation importance
+  permutation_importance:
+    enabled: true
+    n_repeats: 10
+    random_state: 42
+
+persistence:
+  # Model saving configuration
+  models_dir: "data/models"
+  model_filename: "school_shooting_model_v{version}.pkl"
+  version: "1.0.0"
+
+  # Artifacts to save
+  save_artifacts:
+    - "model"
+    - "scaler"
+    - "label_encoders"
+    - "count_encoders"
+    - "feature_names"
+    - "metadata"
+
+api:
+  # FastAPI configuration
+  title: "School Shooting Incident Prediction API"
+  description: "Production ML API for predicting school shooting incident outcomes"
+  version: "1.0.0"
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  reload: false
+
+  # Authentication
+  auth:
+    enabled: true
+    secret_key: "${API_SECRET_KEY}"  # Set via environment variable
+    algorithm: "HS256"
+    access_token_expire_minutes: 60
+
+  # Rate limiting
+  rate_limit:
+    enabled: true
+    calls: 100
+    period: 60  # seconds
+
+  # CORS settings
+  cors:
+    enabled: true
+    allow_origins:
+      - "http://localhost:3000"
+      - "http://localhost:8000"
+    allow_methods:
+      - "GET"
+      - "POST"
+    allow_headers:
+      - "*"
+
+logging:
+  # Logging configuration
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # File logging
+  file:
+    enabled: true
+    filename: "logs/app.log"
+    max_bytes: 10485760  # 10 MB
+    backup_count: 5
+
+  # Console logging
+  console:
+    enabled: true
+
+  # Log specific modules
+  modules:
+    data_loader: "INFO"
+    preprocessor: "INFO"
+    model_trainer: "INFO"
+    api: "DEBUG"
+
+monitoring:
+  # Health check settings
+  health_check:
+    enabled: true
+    endpoint: "/health"
+
+  # Metrics collection
+  metrics:
+    enabled: true
+    endpoint: "/metrics"
+
+  # Model performance monitoring
+  performance_monitoring:
+    enabled: true
+    alert_threshold_accuracy: 0.75
+    data_drift_detection: true
+
+security:
+  # Security settings
+  data_anonymization:
+    enabled: false
+    sensitive_fields:
+      - "School"
+      - "City"
+
+  # Encryption
+  encryption:
+    enabled: false
+    algorithm: "AES-256"
+
+deployment:
+  # Deployment configuration
+  environment: "production"  # development, staging, production
+
+  # Docker settings
+  docker:
+    image_name: "school-shooting-ml-api"
+    tag: "latest"
+    base_image: "python:3.10-slim"
+
+  # Cloud deployment
+  cloud:
+    provider: "aws"  # aws, gcp, azure
+    region: "us-east-1"
+    instance_type: "t3.medium"
