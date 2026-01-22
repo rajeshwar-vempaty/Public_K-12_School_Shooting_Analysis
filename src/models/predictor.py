@@ -89,10 +89,18 @@ class ModelPredictor:
         # Check for missing features
         missing_features = set(self.feature_names) - set(X.columns)
         if missing_features:
-            self.logger.warning(f"Missing features in input: {missing_features}")
+            self.logger.warning(
+                f"Missing {len(missing_features)} features in input: {list(missing_features)}. "
+                f"These will be filled with default value 0, which may affect prediction accuracy."
+            )
             # Add missing features with default values
             for feature in missing_features:
                 X_processed[feature] = 0
+
+        # Check for extra features (not used but worth logging)
+        extra_features = set(X.columns) - set(self.feature_names)
+        if extra_features:
+            self.logger.info(f"Extra features in input (will be ignored): {list(extra_features)}")
 
         # Ensure correct column order
         X_processed = X_processed[self.feature_names]

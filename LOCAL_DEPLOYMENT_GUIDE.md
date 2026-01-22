@@ -89,18 +89,29 @@ nano .env  # or use any text editor
 
 **Minimal .env configuration:**
 ```bash
-API_SECRET_KEY=your-secret-key-change-this-to-something-random-and-secure
+# Generate a secure key first (required for production!)
+API_SECRET_KEY=your-secure-key-here
 API_ENVIRONMENT=development
+
+# Authentication credentials - CHANGE THESE IN PRODUCTION!
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin123
+
 LOG_LEVEL=INFO
 MODEL_VERSION=1.0.0
 ```
 
 **Generate a secure secret key:**
 ```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 Copy the output and paste it as your `API_SECRET_KEY`.
+
+**Important Security Notes:**
+- In production (`API_ENVIRONMENT=production`), `API_SECRET_KEY` is **required**
+- Always change `ADMIN_USERNAME` and `ADMIN_PASSWORD` from defaults
+- Rate limiting is enabled by default (100 requests per 60 seconds)
 
 ### STEP 6: Prepare Your Data
 
@@ -219,8 +230,14 @@ curl http://localhost:8000/health
 
 ### STEP 10: Get Authentication Token
 
+Use the credentials configured in your `.env` file (default: admin/admin123):
+
 ```bash
+# Using default credentials
 curl -X POST "http://localhost:8000/auth/token?username=admin&password=admin123"
+
+# Or using your custom credentials from .env
+curl -X POST "http://localhost:8000/auth/token?username=$ADMIN_USERNAME&password=$ADMIN_PASSWORD"
 ```
 
 **Response:**
@@ -236,6 +253,8 @@ curl -X POST "http://localhost:8000/auth/token?username=admin&password=admin123"
 ```bash
 TOKEN="<paste-your-token-here>"
 ```
+
+**Note:** Invalid credentials will return HTTP 401 Unauthorized. Check your `.env` file if authentication fails.
 
 ### STEP 11: Make a Test Prediction
 
@@ -546,16 +565,35 @@ cp data/processed/K-12_School_Cleandata.csv \
 
 When deploying to a server:
 
-- [ ] Change `API_SECRET_KEY` to a strong random value
+### Security (Critical!)
+- [ ] Generate and set `API_SECRET_KEY` (minimum 32 characters)
+      ```bash
+      python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      ```
 - [ ] Set `API_ENVIRONMENT=production` in `.env`
+- [ ] Change `ADMIN_USERNAME` to a non-default value
+- [ ] Change `ADMIN_PASSWORD` to a strong password (16+ characters)
+- [ ] Set up HTTPS with nginx or similar (never expose HTTP in production)
+- [ ] Configure firewall to allow only necessary ports
+
+### Deployment
 - [ ] Use `gunicorn` instead of `uvicorn --reload`
-- [ ] Set up HTTPS with nginx or similar
-- [ ] Configure firewall to allow only port 8000
-- [ ] Set up log rotation
 - [ ] Create systemd service for auto-start
-- [ ] Monitor disk space (logs can grow)
-- [ ] Set up automated backups
+- [ ] Set up log rotation (logs/app.log can grow large)
+- [ ] Monitor disk space
+- [ ] Set up automated backups of `data/models/` directory
+
+### Monitoring
+- [ ] Configure Prometheus scraping from `/metrics` endpoint
+- [ ] Set up Grafana dashboards (optional)
+- [ ] Configure alerting for health check failures
 - [ ] Test disaster recovery procedure
+
+### Rate Limiting
+The API includes built-in rate limiting (configurable in `config/config.yaml`):
+- Default: 100 requests per 60 seconds per IP
+- Excludes `/health` and `/metrics` endpoints
+- Returns HTTP 429 when exceeded with `Retry-After` header
 
 ---
 
