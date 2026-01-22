@@ -52,7 +52,9 @@ def setup_logger(
     """
     try:
         config = get_config()
-    except:
+    except Exception as e:
+        # Config may not be available (e.g., during early initialization)
+        # Use default logging settings in this case
         config = None
 
     # Get logging configuration

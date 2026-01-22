@@ -23,14 +23,40 @@ config = get_config()
 
 
 def get_secret_key() -> str:
-    """Get secret key from environment or config."""
+    """Get secret key from environment or config.
+
+    In production mode, a proper secret key must be set via API_SECRET_KEY environment variable.
+    """
     secret_key = os.getenv("API_SECRET_KEY")
+    environment = os.getenv("API_ENVIRONMENT", "development").lower()
+
     if not secret_key:
-        secret_key = config.get("api.auth.secret_key", "dev-secret-key-change-in-production")
-        if secret_key.startswith("${"):
-            # Fallback if env var not set
-            secret_key = "dev-secret-key-change-in-production"
-            logger.warning("Using default secret key - NOT SECURE FOR PRODUCTION!")
+        secret_key = config.get("api.auth.secret_key", "")
+
+        # Check if secret key is still an unresolved env var placeholder
+        if not secret_key or secret_key.startswith("${"):
+            if environment == "production":
+                error_msg = (
+                    "SECURITY ERROR: API_SECRET_KEY environment variable must be set in production. "
+                    "Generate a secure key with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                )
+                logger.critical(error_msg)
+                raise ValueError(error_msg)
+            else:
+                # Only allow default key in development/testing
+                secret_key = "dev-secret-key-change-in-production"
+                logger.warning(
+                    "Using default secret key for development. "
+                    "Set API_SECRET_KEY environment variable before deploying to production!"
+                )
+    else:
+        # Validate the secret key is sufficiently long
+        if len(secret_key) < 32:
+            logger.warning(
+                f"API_SECRET_KEY is only {len(secret_key)} characters. "
+                "Recommended minimum is 32 characters for security."
+            )
+
     return secret_key
 
 

@@ -6,7 +6,8 @@ Production-ready REST API for school shooting incident predictions.
 import time
 from datetime import timedelta
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Depends, status
+from collections import defaultdict
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Histogram, generate_latest
@@ -22,7 +23,7 @@ from .schemas import (
     ErrorResponse,
     TokenResponse,
 )
-from .auth import create_access_token, verify_token, get_secret_key
+from .auth import create_access_token, verify_token, get_secret_key, verify_password, hash_password
 from ..models.predictor import ModelPredictor
 from ..utils.logger import get_logger
 from ..utils.config import get_config
@@ -57,10 +58,61 @@ if config.get("api.cors.enabled", True):
 REQUEST_COUNT = Counter("api_requests_total", "Total API requests", ["method", "endpoint", "status"])
 REQUEST_DURATION = Histogram("api_request_duration_seconds", "API request duration")
 PREDICTION_COUNT = Counter("predictions_total", "Total predictions made", ["result"])
+RATE_LIMIT_EXCEEDED = Counter("rate_limit_exceeded_total", "Total rate limit exceeded events", ["client_ip"])
+
+
+# Simple in-memory rate limiter
+class RateLimiter:
+    """Simple in-memory rate limiter using sliding window."""
+
+    def __init__(self, max_calls: int, period_seconds: int):
+        self.max_calls = max_calls
+        self.period_seconds = period_seconds
+        self.calls = defaultdict(list)
+
+    def is_allowed(self, client_id: str) -> bool:
+        """Check if client is allowed to make a request."""
+        now = time.time()
+        window_start = now - self.period_seconds
+
+        # Remove old calls outside the window
+        self.calls[client_id] = [t for t in self.calls[client_id] if t > window_start]
+
+        if len(self.calls[client_id]) >= self.max_calls:
+            return False
+
+        self.calls[client_id].append(now)
+        return True
+
+    def get_remaining(self, client_id: str) -> int:
+        """Get remaining calls for client."""
+        now = time.time()
+        window_start = now - self.period_seconds
+        self.calls[client_id] = [t for t in self.calls[client_id] if t > window_start]
+        return max(0, self.max_calls - len(self.calls[client_id]))
+
+
+# Initialize rate limiter from config
+rate_limiter = RateLimiter(
+    max_calls=config.get("api.rate_limit.calls", 100),
+    period_seconds=config.get("api.rate_limit.period", 60)
+)
 
 # Global state
 start_time = time.time()
 predictor: ModelPredictor = None
+
+# User database - In production, use a proper database
+# Default admin user with hashed password (password: "admin123")
+# IMPORTANT: Change this password via ADMIN_PASSWORD environment variable
+import os
+USERS_DB = {
+    os.getenv("ADMIN_USERNAME", "admin"): {
+        "username": os.getenv("ADMIN_USERNAME", "admin"),
+        "hashed_password": hash_password(os.getenv("ADMIN_PASSWORD", "admin123")),
+        "disabled": False,
+    }
+}
 
 
 @app.on_event("startup")
@@ -102,7 +154,37 @@ async def shutdown_event():
 
 
 @app.middleware("http")
-async def add_process_time_header(request, call_next):
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting to all requests."""
+    # Skip rate limiting for health and metrics endpoints
+    if request.url.path in ["/health", "/metrics", "/"]:
+        return await call_next(request)
+
+    if config.get("api.rate_limit.enabled", True):
+        client_ip = request.client.host if request.client else "unknown"
+
+        if not rate_limiter.is_allowed(client_ip):
+            RATE_LIMIT_EXCEEDED.labels(client_ip=client_ip).inc()
+            logger.warning(f"Rate limit exceeded for client: {client_ip}")
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={
+                    "error": "Rate limit exceeded",
+                    "detail": f"Too many requests. Limit: {config.get('api.rate_limit.calls', 100)} per {config.get('api.rate_limit.period', 60)} seconds.",
+                    "retry_after": config.get("api.rate_limit.period", 60),
+                },
+                headers={
+                    "Retry-After": str(config.get("api.rate_limit.period", 60)),
+                    "X-RateLimit-Limit": str(config.get("api.rate_limit.calls", 100)),
+                    "X-RateLimit-Remaining": "0",
+                },
+            )
+
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
     """Add processing time header to responses."""
     start = time.time()
 
@@ -111,6 +193,12 @@ async def add_process_time_header(request, call_next):
         process_time = time.time() - start
 
         response.headers["X-Process-Time"] = str(process_time)
+
+        # Add rate limit headers
+        if config.get("api.rate_limit.enabled", True):
+            client_ip = request.client.host if request.client else "unknown"
+            response.headers["X-RateLimit-Limit"] = str(config.get("api.rate_limit.calls", 100))
+            response.headers["X-RateLimit-Remaining"] = str(rate_limiter.get_remaining(client_ip))
 
         # Update Prometheus metrics
         REQUEST_COUNT.labels(
@@ -277,29 +365,51 @@ async def get_auth_token(username: str, password: str):
     """
     Get authentication token.
 
-    In production, implement proper user authentication.
-    This is a simplified version for demonstration.
+    Authenticates user against the user database and returns a JWT token.
+    Default credentials: admin / admin123 (change via ADMIN_USERNAME and ADMIN_PASSWORD env vars)
     """
-    # In production, verify against a user database
-    # This is a simplified example
-    if username and password:  # Add proper validation
-        access_token_expires = timedelta(
-            minutes=config.get("api.auth.access_token_expire_minutes", 60)
-        )
-        access_token = create_access_token(
-            data={"sub": username}, expires_delta=access_token_expires
-        )
+    # Validate credentials against user database
+    user = USERS_DB.get(username)
 
-        return TokenResponse(
-            access_token=access_token,
-            token_type="bearer",
-            expires_in=config.get("api.auth.access_token_expire_minutes", 60),
-        )
-    else:
+    if not user:
+        logger.warning(f"Authentication failed: user '{username}' not found")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if user.get("disabled"):
+        logger.warning(f"Authentication failed: user '{username}' is disabled")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is disabled",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not verify_password(password, user["hashed_password"]):
+        logger.warning(f"Authentication failed: invalid password for user '{username}'")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Create access token
+    access_token_expires = timedelta(
+        minutes=config.get("api.auth.access_token_expire_minutes", 60)
+    )
+    access_token = create_access_token(
+        data={"sub": username}, expires_delta=access_token_expires
+    )
+
+    logger.info(f"User '{username}' authenticated successfully")
+
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=config.get("api.auth.access_token_expire_minutes", 60),
+    )
 
 
 @app.get("/metrics", tags=["Monitoring"])
